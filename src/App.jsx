@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import logo from "./assets/Logo-Talpaeats.png"
 import AdminPanel from "./components/AdminPanel"
+import { supabase } from "./lib/supabase"
 
 const ENVIO_FIJO = 35
 const TELEFONO_PEDIDOS = "523319944525"
@@ -1333,35 +1334,57 @@ function obtenerRestaurantesBase() {
   )
 }
 
-function cargarRestaurantes() {
+const SUPABASE_TABLE = "app_state"
+const SUPABASE_KEY = "restaurantes"
+
+async function cargarRestaurantesDesdeNube() {
   try {
-    const guardados = localStorage.getItem(STORAGE_KEYS.restaurantes)
-    if (!guardados) {
-      return obtenerRestaurantesBase()
+    const { data, error } = await supabase
+      .from(SUPABASE_TABLE)
+      .select("data")
+      .eq("key", SUPABASE_KEY)
+      .maybeSingle()
+
+    if (error) throw error
+
+    const base = []
+
+    if (!data?.data || !Array.isArray(data.data)) {
+      const { error: seedError } = await supabase
+        .from(SUPABASE_TABLE)
+        .upsert({
+          key: SUPABASE_KEY,
+          data: base
+        }, { onConflict: "key" })
+
+      if (seedError) throw seedError
+      return base
     }
 
-    const parseados = JSON.parse(guardados)
-    if (!Array.isArray(parseados) || parseados.length === 0) {
-      return obtenerRestaurantesBase()
-    }
-
-    return parseados.map((restaurante, index) =>
+    return data.data.map((restaurante, index) =>
       normalizarRestauranteAdmin(restaurante, index)
     )
-  } catch {
+  } catch (error) {
+    console.error("Error cargando restaurantes desde Supabase:", error)
     return obtenerRestaurantesBase()
   }
 }
 
-function guardarRestaurantesStorage(restaurantes) {
-  localStorage.setItem(
-    STORAGE_KEYS.restaurantes,
-    JSON.stringify(
-      restaurantes.map((restaurante, index) =>
-        normalizarRestauranteAdmin(restaurante, index)
-      )
-    )
+async function guardarRestaurantesEnNube(restaurantes) {
+  const normalizados = restaurantes.map((restaurante, index) =>
+    normalizarRestauranteAdmin(restaurante, index)
   )
+
+  const { error } = await supabase
+    .from(SUPABASE_TABLE)
+    .upsert({
+      key: SUPABASE_KEY,
+      data: normalizados
+    }, { onConflict: "key" })
+
+  if (error) throw error
+
+  return normalizados
 }
 
 function urlTieneAccesoAdmin() {
@@ -1409,7 +1432,8 @@ function App() {
   const [copiado, setCopiado] = useState(false)
   const [esMovil, setEsMovil] = useState(window.innerWidth <= 768)
   const [categoriaActiva, setCategoriaActiva] = useState("")
-  const [restaurantes, setRestaurantes] = useState(() => cargarRestaurantes())
+  const [restaurantes, setRestaurantes] = useState(() => obtenerRestaurantesBase())
+  const [restaurantesCargando, setRestaurantesCargando] = useState(true)
   const [adminAutorizado, setAdminAutorizado] = useState(() => {
     try {
       return localStorage.getItem(STORAGE_KEYS.adminAuth) === "ok"
@@ -1477,8 +1501,28 @@ function App() {
   }, [datosCliente])
 
   useEffect(() => {
-    guardarRestaurantesStorage(restaurantes)
-  }, [restaurantes])
+    let activo = true
+
+    const inicializarRestaurantes = async () => {
+      try {
+        setRestaurantesCargando(true)
+        const cargados = await cargarRestaurantesDesdeNube()
+        if (activo) {
+          setRestaurantes(cargados)
+        }
+      } finally {
+        if (activo) {
+          setRestaurantesCargando(false)
+        }
+      }
+    }
+
+    inicializarRestaurantes()
+
+    return () => {
+      activo = false
+    }
+  }, [])
 
   useEffect(() => {
     if (location.pathname !== "/admin") {
@@ -2118,12 +2162,9 @@ Notas: ${datosCliente.notas || "Sin notas"}`
   }
 
 
-  const guardarRestaurantesDesdeAdmin = (nuevosRestaurantes) => {
-    setRestaurantes(
-      nuevosRestaurantes.map((restaurante, index) =>
-        normalizarRestauranteAdmin(restaurante, index)
-      )
-    )
+  const guardarRestaurantesDesdeAdmin = async (nuevosRestaurantes) => {
+    const guardados = await guardarRestaurantesEnNube(nuevosRestaurantes)
+    setRestaurantes(guardados)
   }
 
   const salirAdmin = () => {
@@ -2132,18 +2173,23 @@ Notas: ${datosCliente.notas || "Sin notas"}`
     navigate("/")
   }
 
-  const restablecerRestaurantesBase = () => {
+  const restablecerRestaurantesBase = async () => {
     const confirmar = window.confirm(
-      "Esto borrará los cambios guardados en este navegador y restaurará la base original. ¿Continuar?"
+      "Esto restaurará la base original en línea para todos los dispositivos. ¿Continuar?"
     )
 
     if (!confirmar) return
 
-    const base = obtenerRestaurantesBase()
-    setRestaurantes(base)
-    guardarRestaurantesStorage(base)
-    setRestauranteSeleccionado(null)
-    navigate("/")
+    try {
+      const base = obtenerRestaurantesBase()
+      const guardados = await guardarRestaurantesEnNube(base)
+      setRestaurantes(guardados)
+      setRestauranteSeleccionado(null)
+      navigate("/")
+    } catch (error) {
+      console.error(error)
+      alert("No se pudo restablecer la base.")
+    }
   }
 
 
@@ -2183,6 +2229,19 @@ Notas: ${datosCliente.notas || "Sin notas"}`
         </div>
       </button>
     ) : null
+
+  if (restaurantesCargando) {
+    return (
+      <div style={estilos.pagina}>
+        <div style={estilos.contenedorSm}>
+          <div style={estilos.cardGrande}>
+            <h2 style={estilos.seccionTituloLeft}>Cargando restaurantes...</h2>
+            <p style={estilos.textoSuave}>Espera un momento.</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (location.pathname === "/admin") {
     if (!adminRevisado) {
@@ -3040,6 +3099,14 @@ Notas: ${datosCliente.notas || "Sin notas"}`
       </div>
 
       {BarraFlotanteGlobal}
+
+      <button
+        style={estilos.botonAdminDiscreto}
+        onClick={abrirAdminDesdeBoton}
+        title="Administrador"
+      >
+        ⚙️
+      </button>
     </div>
   )
 }
