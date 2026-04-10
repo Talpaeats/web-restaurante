@@ -48,6 +48,35 @@ function inicioDeSemana(fecha = new Date()) {
   return copia
 }
 
+function finDelDia(fecha = new Date()) {
+  const copia = new Date(fecha)
+  copia.setHours(23, 59, 59, 999)
+  return copia
+}
+
+function inicioDeMes(fecha = new Date()) {
+  return inicioDelDia(new Date(fecha.getFullYear(), fecha.getMonth(), 1))
+}
+
+function finDeMes(fecha = new Date()) {
+  return finDelDia(new Date(fecha.getFullYear(), fecha.getMonth() + 1, 0))
+}
+
+function formatearFechaInput(fecha = new Date()) {
+  const anio = fecha.getFullYear()
+  const mes = String(fecha.getMonth() + 1).padStart(2, "0")
+  const dia = String(fecha.getDate()).padStart(2, "0")
+  return `${anio}-${mes}-${dia}`
+}
+
+function normalizarTexto(valor) {
+  return String(valor || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+}
+
 function estaEnRango(fechaIso, inicio, fin = null) {
   const fecha = new Date(fechaIso)
   if (Number.isNaN(fecha.getTime())) return false
@@ -262,6 +291,9 @@ export default function AdminPanel({
   const [productoSeleccionadoId, setProductoSeleccionadoId] = useState(null)
   const [filtroStatus, setFiltroStatus] = useState("todos")
   const [filtroRestaurante, setFiltroRestaurante] = useState("todos")
+  const [filtroPeriodo, setFiltroPeriodo] = useState("hoy")
+  const [fechaDesde, setFechaDesde] = useState(formatearFechaInput(new Date()))
+  const [fechaHasta, setFechaHasta] = useState(formatearFechaInput(new Date()))
   const [busquedaPedido, setBusquedaPedido] = useState("")
   const [repartidoresLocal, setRepartidoresLocal] = useState(repartidores)
   const [seleccionPedidoId, setSeleccionPedidoId] = useState(pedidos[0]?.id ?? null)
@@ -381,18 +413,79 @@ export default function AdminPanel({
       .sort((a, b) => b.asignados - a.asignados)
   }, [pedidosHoy])
 
+  const rangoPeriodoPedidos = useMemo(() => {
+    const ahora = new Date()
+
+    if (filtroPeriodo === "hoy") {
+      return { inicio: inicioDelDia(ahora), fin: finDelDia(ahora) }
+    }
+
+    if (filtroPeriodo === "ayer") {
+      const ayer = new Date(ahora)
+      ayer.setDate(ayer.getDate() - 1)
+      return { inicio: inicioDelDia(ayer), fin: finDelDia(ayer) }
+    }
+
+    if (filtroPeriodo === "semana") {
+      return { inicio: inicioDeSemana(ahora), fin: finDelDia(ahora) }
+    }
+
+    if (filtroPeriodo === "mes") {
+      return { inicio: inicioDeMes(ahora), fin: finDeMes(ahora) }
+    }
+
+    if (filtroPeriodo === "personalizado") {
+      const inicio = fechaDesde ? inicioDelDia(new Date(`${fechaDesde}T00:00:00`)) : null
+      const fin = fechaHasta ? finDelDia(new Date(`${fechaHasta}T00:00:00`)) : null
+      return { inicio, fin }
+    }
+
+    return { inicio: null, fin: null }
+  }, [filtroPeriodo, fechaDesde, fechaHasta])
+
   const pedidosFiltrados = useMemo(() => {
     return pedidos.filter((pedido) => {
+      const fechaPedido = pedido.createdAt ? new Date(pedido.createdAt) : null
       const coincideStatus = filtroStatus === "todos" ? true : (pedido.status || "nuevo") === filtroStatus
-      const coincideRestaurante = filtroRestaurante === "todos" ? true : (pedido.restaurantId || pedido.restauranteId) === filtroRestaurante
-      const texto = `${pedido.folio || ""} ${pedido.restauranteNombre || ""} ${pedido.customer?.nombre || ""} ${pedido.customer?.telefono || ""}`.toLowerCase()
-      const coincideBusqueda = busquedaPedido.trim()
-        ? texto.includes(busquedaPedido.trim().toLowerCase())
-        : true
+      const coincideRestaurante = filtroRestaurante === "todos"
+        ? true
+        : String(pedido.restaurantId || pedido.restauranteId || "") === String(filtroRestaurante)
 
-      return coincideStatus && coincideRestaurante && coincideBusqueda
+      let coincidePeriodo = true
+      if (fechaPedido && !Number.isNaN(fechaPedido.getTime())) {
+        const { inicio, fin } = rangoPeriodoPedidos
+        if (inicio && fin) coincidePeriodo = fechaPedido >= inicio && fechaPedido <= fin
+        else if (inicio) coincidePeriodo = fechaPedido >= inicio
+        else if (fin) coincidePeriodo = fechaPedido <= fin
+      }
+
+      const textoBusqueda = normalizarTexto([
+        pedido.folio,
+        pedido.customer?.nombre,
+        pedido.restauranteNombre,
+        pedido.driverNombre,
+        pedido.customer?.telefono
+      ].join(" "))
+
+      const terminoBusqueda = normalizarTexto(busquedaPedido)
+      const coincideBusqueda = terminoBusqueda ? textoBusqueda.includes(terminoBusqueda) : true
+
+      return coincideStatus && coincideRestaurante && coincidePeriodo && coincideBusqueda
     })
-  }, [pedidos, filtroStatus, filtroRestaurante, busquedaPedido])
+  }, [pedidos, filtroStatus, filtroRestaurante, filtroPeriodo, fechaDesde, fechaHasta, busquedaPedido, rangoPeriodoPedidos])
+
+  const metricasPedidosFiltrados = useMemo(() => {
+    const totalVentas = pedidosFiltrados.reduce((acc, pedido) => acc + Number(pedido.totalCustomer || 0), 0)
+    const pendientes = pedidosFiltrados.filter((pedido) => !["entregado", "cancelado"].includes(pedido.status || "")).length
+    const entregados = pedidosFiltrados.filter((pedido) => (pedido.status || "") === "entregado").length
+
+    return {
+      totalPedidos: pedidosFiltrados.length,
+      totalVentas,
+      pendientes,
+      entregados
+    }
+  }, [pedidosFiltrados])
 
   const pedidoSeleccionado = useMemo(
     () => pedidos.find((pedido) => pedido.id === seleccionPedidoId) || pedidosFiltrados[0] || null,
@@ -886,12 +979,54 @@ export default function AdminPanel({
             <div style={styles.card}>
               <div style={styles.cardTitle}>Filtros</div>
 
+              <div style={styles.quickFilters}>
+                {[
+                  { id: "hoy", label: "Hoy" },
+                  { id: "ayer", label: "Ayer" },
+                  { id: "semana", label: "Esta semana" },
+                  { id: "mes", label: "Este mes" },
+                  { id: "personalizado", label: "Rango personalizado" }
+                ].map((periodo) => (
+                  <button
+                    key={periodo.id}
+                    style={filtroPeriodo === periodo.id ? styles.quickFilterButtonActive : styles.quickFilterButton}
+                    onClick={() => setFiltroPeriodo(periodo.id)}
+                  >
+                    {periodo.label}
+                  </button>
+                ))}
+              </div>
+
+              {filtroPeriodo === "personalizado" && (
+                <div style={styles.filterGrid}>
+                  <div>
+                    <label style={styles.label}>Desde</label>
+                    <input
+                      type="date"
+                      style={styles.input}
+                      value={fechaDesde}
+                      onChange={(e) => setFechaDesde(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={styles.label}>Hasta</label>
+                    <input
+                      type="date"
+                      style={styles.input}
+                      value={fechaHasta}
+                      onChange={(e) => setFechaHasta(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div style={styles.filterGrid}>
                 <input
                   style={styles.input}
                   value={busquedaPedido}
                   onChange={(e) => setBusquedaPedido(e.target.value)}
-                  placeholder="Buscar folio, cliente o teléfono"
+                  placeholder="Buscar por folio, cliente, restaurante o repartidor"
                 />
 
                 <select style={styles.input} value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
@@ -914,6 +1049,33 @@ export default function AdminPanel({
                 </select>
               </div>
 
+              <div style={styles.gridMetricsMini}>
+                {tarjetaDato({
+                  titulo: "Pedidos encontrados",
+                  valor: metricasPedidosFiltrados.totalPedidos,
+                  subtitulo: "Con los filtros actuales",
+                  tono: "cyan"
+                })}
+                {tarjetaDato({
+                  titulo: "Venta total",
+                  valor: dinero(metricasPedidosFiltrados.totalVentas),
+                  subtitulo: "Suma del periodo filtrado",
+                  tono: "green"
+                })}
+                {tarjetaDato({
+                  titulo: "Pendientes",
+                  valor: metricasPedidosFiltrados.pendientes,
+                  subtitulo: "Activos o en proceso",
+                  tono: "amber"
+                })}
+                {tarjetaDato({
+                  titulo: "Entregados",
+                  valor: metricasPedidosFiltrados.entregados,
+                  subtitulo: "Pedidos cerrados",
+                  tono: "violet"
+                })}
+              </div>
+
               <div style={styles.orderList}>
                 {pedidosFiltrados.length === 0 ? (
                   <div style={styles.emptyText}>No hay pedidos con esos filtros.</div>
@@ -933,6 +1095,7 @@ export default function AdminPanel({
                       </div>
                       <div style={styles.orderMuted}>{pedido.restauranteNombre}</div>
                       <div style={styles.orderMuted}>{pedido.customer?.nombre || "Sin cliente"} · {pedido.customer?.telefono || "Sin teléfono"}</div>
+                      <div style={styles.orderMuted}>Repartidor: {pedido.driverNombre || "Sin asignar"}</div>
                       <div style={styles.rowBetween}>
                         <span style={styles.orderTotal}>{dinero(pedido.totalCustomer)}</span>
                         <span style={styles.orderMuted}>
@@ -1631,6 +1794,34 @@ const styles = {
     gap: 16
   },
   filterGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: 12,
+    marginBottom: 16
+  },
+  quickFilters: {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+    marginBottom: 16
+  },
+  quickFilterButton: {
+    border: "1px solid rgba(148, 163, 184, 0.18)",
+    background: "rgba(15, 23, 42, 0.85)",
+    color: "#cbd5e1",
+    padding: "10px 14px",
+    borderRadius: 999,
+    cursor: "pointer"
+  },
+  quickFilterButtonActive: {
+    border: "1px solid rgba(34, 211, 238, 0.3)",
+    background: "rgba(8, 145, 178, 0.2)",
+    color: "#67e8f9",
+    padding: "10px 14px",
+    borderRadius: 999,
+    cursor: "pointer"
+  },
+  gridMetricsMini: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
     gap: 12,
