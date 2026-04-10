@@ -12,12 +12,12 @@ const STORAGE_KEYS = {
   carrito: "talpaEatsCarrito",
   datosCliente: "talpaEatsDatosCliente",
   restaurantes: "talpaEatsRestaurantesAdminV1",
-  adminAuth: "talpaEatsAdminAuthV1"
+  adminAuth: "talpaEatsAdminAuthV2"
 }
 
 const ADMIN_QUERY_KEY = "admin"
 const ADMIN_QUERY_VALUE = "1"
-const ADMIN_PASSWORD = "talpa2026"
+const ADMIN_PASSWORD = "Montenegro77"
 
 
 const RESTAURANTES_BASE = [
@@ -1444,6 +1444,20 @@ function App() {
   const [erroresCheckout, setErroresCheckout] = useState({})
   const [mostrarErroresCheckout, setMostrarErroresCheckout] = useState(false)
 
+  const abrirAdminDesdeBoton = () => {
+    const entrada = window.prompt("Contraseña de administrador")
+    if (entrada === null) return
+
+    if (entrada !== ADMIN_PASSWORD) {
+      alert("Contraseña incorrecta")
+      return
+    }
+
+    localStorage.setItem(STORAGE_KEYS.adminAuth, "ok")
+    setAdminAutorizado(true)
+    setAdminRevisado(true)
+  }
+
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.carrito, JSON.stringify(carrito))
   }, [carrito])
@@ -2034,21 +2048,19 @@ Notas: ${datosCliente.notas || "Sin notas"}`
       </button>
     ) : null
 
-  if (urlTieneAccesoAdmin()) {
-    if (!adminRevisado) {
-      return null
-    }
+  if (!adminRevisado) {
+    return null
+  }
 
-    if (adminAutorizado) {
-      return (
-        <AdminPanel
-          restaurantes={restaurantes}
-          onGuardar={guardarRestaurantesDesdeAdmin}
-          onSalirAdmin={salirAdmin}
-          onRestablecer={restablecerRestaurantesBase}
-        />
-      )
-    }
+  if (adminAutorizado) {
+    return (
+      <AdminPanel
+        restaurantes={restaurantes}
+        onGuardar={guardarRestaurantesDesdeAdmin}
+        onSalirAdmin={salirAdmin}
+        onRestablecer={restablecerRestaurantesBase}
+      />
+    )
   }
 
   if (pantalla === "carrito") {
@@ -2894,6 +2906,14 @@ Notas: ${datosCliente.notas || "Sin notas"}`
           })}
         </div>
       </div>
+
+      <button
+        onClick={abrirAdminDesdeBoton}
+        style={estilos.botonAdminSecreto}
+        title="Administrador"
+      >
+        ⚙
+      </button>
 
       {BarraFlotanteGlobal}
     </div>
@@ -3802,6 +3822,22 @@ cardResumenSticky: {
     fontWeight: 800,
     color: "#102a43",
     margin: "0 0 14px"
+  },
+  botonAdminSecreto: {
+    position: "fixed",
+    right: "14px",
+    bottom: "14px",
+    width: "42px",
+    height: "42px",
+    borderRadius: "999px",
+    border: "none",
+    backgroundColor: "#111",
+    color: "#fff",
+    fontSize: "18px",
+    cursor: "pointer",
+    opacity: 0.18,
+    zIndex: 9999,
+    boxShadow: "0 8px 24px rgba(0,0,0,0.18)"
   },
 }
 

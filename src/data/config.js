@@ -7,11 +7,11 @@ export const BANCO_TRANSFERENCIA = "Mercado Pago"
 export const STORAGE_KEYS = {
   restaurantes: "talpaeats_restaurantes_v2",
   carrito: "talpaeats_carrito_v2",
-  adminAuth: "talpaeats_admin_auth_v1"
+  adminAuth: "talpaeats_admin_auth_v2"
 }
 
 export const ADMIN_CONFIG = {
   queryKey: "admin",
   queryValue: "1",
-  password: "talpa2026"
+  password: "Montenegro77"
 }
