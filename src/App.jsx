@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
+import { useLocation, useNavigate } from "react-router-dom"
 import logo from "./assets/Logo-Talpaeats.png"
 import AdminPanel from "./components/AdminPanel"
 
@@ -1375,7 +1376,30 @@ function limpiarAccesoAdminUrl() {
   window.history.replaceState({}, "", `${url.pathname}${query}${url.hash}`)
 }
 
+
+function normalizarSlug(texto) {
+  return String(texto || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+}
+
+function crearSlugRestaurante(restaurante) {
+  return `${normalizarSlug(restaurante?.nombre || "restaurante")}-${restaurante?.id}`
+}
+
+function obtenerIdDesdeSlug(slug = "") {
+  const partes = String(slug).split("-")
+  const ultimo = partes[partes.length - 1]
+  const numero = Number(ultimo)
+  return Number.isNaN(numero) ? ultimo : numero
+}
+
 function App() {
+  const navigate = useNavigate()
+  const location = useLocation()
   const [pantalla, setPantalla] = useState("inicio")
   const [restauranteSeleccionado, setRestauranteSeleccionado] = useState(null)
   const [productoSeleccionado, setProductoSeleccionado] = useState(null)
@@ -1393,7 +1417,7 @@ function App() {
       return false
     }
   })
-  const [adminRevisado, setAdminRevisado] = useState(() => !urlTieneAccesoAdmin())
+  const [adminRevisado, setAdminRevisado] = useState(true)
 
   const [carrito, setCarrito] = useState(() => {
     try {
@@ -1444,20 +1468,6 @@ function App() {
   const [erroresCheckout, setErroresCheckout] = useState({})
   const [mostrarErroresCheckout, setMostrarErroresCheckout] = useState(false)
 
-  const abrirAdminDesdeBoton = () => {
-    const entrada = window.prompt("Contraseña de administrador")
-    if (entrada === null) return
-
-    if (entrada !== ADMIN_PASSWORD) {
-      alert("Contraseña incorrecta")
-      return
-    }
-
-    localStorage.setItem(STORAGE_KEYS.adminAuth, "ok")
-    setAdminAutorizado(true)
-    setAdminRevisado(true)
-  }
-
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.carrito, JSON.stringify(carrito))
   }, [carrito])
@@ -1471,7 +1481,7 @@ function App() {
   }, [restaurantes])
 
   useEffect(() => {
-    if (!urlTieneAccesoAdmin()) {
+    if (location.pathname !== "/admin") {
       setAdminRevisado(true)
       return
     }
@@ -1483,16 +1493,24 @@ function App() {
     }
 
     const entrada = window.prompt("Contraseña de administrador")
+    if (entrada === null) {
+      navigate("/", { replace: true })
+      setAdminAutorizado(false)
+      setAdminRevisado(true)
+      return
+    }
+
     if (entrada === ADMIN_PASSWORD) {
       localStorage.setItem(STORAGE_KEYS.adminAuth, "ok")
       setAdminAutorizado(true)
     } else {
       alert("Contraseña incorrecta")
-      limpiarAccesoAdminUrl()
       setAdminAutorizado(false)
+      navigate("/", { replace: true })
     }
+
     setAdminRevisado(true)
-  }, [])
+  }, [location.pathname, navigate])
 
   useEffect(() => {
     if (!restauranteSeleccionado) return
@@ -1503,20 +1521,88 @@ function App() {
 
     if (!actualizado) {
       setRestauranteSeleccionado(null)
-      setPantalla("inicio")
+      navigate("/", { replace: true })
       return
     }
 
     if (actualizado !== restauranteSeleccionado) {
       setRestauranteSeleccionado(actualizado)
     }
-  }, [restaurantes, restauranteSeleccionado])
+  }, [restaurantes, restauranteSeleccionado, navigate])
 
   useEffect(() => {
     const manejarResize = () => setEsMovil(window.innerWidth <= 768)
     window.addEventListener("resize", manejarResize)
     return () => window.removeEventListener("resize", manejarResize)
   }, [])
+
+
+  useEffect(() => {
+    const path = location.pathname
+    const partes = path.split("/").filter(Boolean)
+
+    if (path === "/") {
+      setPantalla("inicio")
+      setRestauranteSeleccionado(null)
+      setProductoSeleccionado(null)
+      return
+    }
+
+    if (path === "/admin") {
+      return
+    }
+
+    if (path === "/carrito") {
+      setPantalla("carrito")
+      const restaurante = restaurantes.find((r) => r.id === carrito.restauranteId) || null
+      setRestauranteSeleccionado(restaurante)
+      setProductoSeleccionado(null)
+      return
+    }
+
+    if (path === "/checkout") {
+      setPantalla("checkout")
+      const restaurante = restaurantes.find((r) => r.id === carrito.restauranteId) || null
+      setRestauranteSeleccionado(restaurante)
+      setProductoSeleccionado(null)
+      return
+    }
+
+    if (partes[0] === "restaurante" && partes[1]) {
+      const restauranteId = obtenerIdDesdeSlug(partes[1])
+      const restaurante = restaurantes.find((r) => String(r.id) === String(restauranteId)) || null
+
+      if (!restaurante) {
+        navigate("/", { replace: true })
+        return
+      }
+
+      setRestauranteSeleccionado(restaurante)
+
+      if (partes[2] === "producto" && partes[3]) {
+        const productoId = obtenerIdDesdeSlug(partes[3])
+        const producto = restaurante.productos.find((p) => String(p.id) === String(productoId)) || null
+
+        if (!producto) {
+          navigate(`/restaurante/${crearSlugRestaurante(restaurante)}`, { replace: true })
+          return
+        }
+
+        setProductoSeleccionado(producto)
+        setVarianteSeleccionada(producto.variantes?.[0] || null)
+        setExtrasSeleccionados([])
+        setCantidadDetalle(1)
+        setPantalla("detalle")
+        return
+      }
+
+      setProductoSeleccionado(null)
+      setPantalla("menu")
+      return
+    }
+
+    navigate("/", { replace: true })
+  }, [location.pathname, restaurantes, carrito.restauranteId, navigate])
 
 
   const restauranteDelCarrito = useMemo(
@@ -1591,6 +1677,75 @@ function App() {
   }
 
 
+  const abrirRestaurante = (restaurante) => {
+    setRestauranteSeleccionado(restaurante)
+    navigate(`/restaurante/${crearSlugRestaurante(restaurante)}`)
+  }
+
+  const volverAInicio = () => {
+    setRestauranteSeleccionado(null)
+    setProductoSeleccionado(null)
+    navigate("/")
+  }
+
+  const irAlCarrito = () => {
+    navigate("/carrito")
+  }
+
+  const irAlCheckout = () => {
+    navigate("/checkout")
+  }
+
+  const volverAMenu = () => {
+    if (!restauranteSeleccionado) {
+      navigate("/")
+      return
+    }
+
+    navigate(`/restaurante/${crearSlugRestaurante(restauranteSeleccionado)}`)
+  }
+
+  const abrirProducto = (producto) => {
+    if (!restauranteSeleccionado) return
+
+    const estado = obtenerEstadoRestaurante(restauranteSeleccionado.horario)
+
+    if (!estado.abierto) {
+      alert(
+        `${restauranteSeleccionado.nombre} está cerrado. Abre a las ${restauranteSeleccionado.horario.abierto}.`
+      )
+      return
+    }
+
+    setProductoSeleccionado(producto)
+    setVarianteSeleccionada(producto.variantes?.[0] || null)
+    setExtrasSeleccionados([])
+    setCantidadDetalle(1)
+    navigate(
+      `/restaurante/${crearSlugRestaurante(restauranteSeleccionado)}/producto/${producto.id}`
+    )
+  }
+
+  const abrirAdminDesdeBoton = () => {
+    if (adminAutorizado) {
+      navigate("/admin")
+      return
+    }
+
+    const entrada = window.prompt("Contraseña de administrador")
+    if (entrada === null) return
+
+    if (entrada !== ADMIN_PASSWORD) {
+      alert("Contraseña incorrecta")
+      return
+    }
+
+    localStorage.setItem(STORAGE_KEYS.adminAuth, "ok")
+    setAdminAutorizado(true)
+    navigate("/admin")
+  }
+
+
 
   useEffect(() => {
     if (pantalla === "menu") {
@@ -1638,25 +1793,6 @@ function App() {
 
     return () => window.removeEventListener("scroll", detectarCategoriaActiva)
   }, [pantalla, restauranteSeleccionado, categoriasMenu, esMovil])
-
-  const abrirProducto = (producto) => {
-    if (!restauranteSeleccionado) return
-
-    const estado = obtenerEstadoRestaurante(restauranteSeleccionado.horario)
-
-    if (!estado.abierto) {
-      alert(
-        `${restauranteSeleccionado.nombre} está cerrado. Abre a las ${restauranteSeleccionado.horario.abierto}.`
-      )
-      return
-    }
-
-    setProductoSeleccionado(producto)
-    setVarianteSeleccionada(producto.variantes?.[0] || null)
-    setExtrasSeleccionados([])
-    setCantidadDetalle(1)
-    setPantalla("detalle")
-  }
 
   const toggleExtra = (extraId) => {
     setExtrasSeleccionados((prev) =>
@@ -1754,7 +1890,7 @@ function App() {
       }
     })
 
-    setPantalla("menu")
+    navigate(`/restaurante/${crearSlugRestaurante(restauranteSeleccionado)}`)
     setProductoSeleccionado(null)
   }
 
@@ -1969,14 +2105,14 @@ Notas: ${datosCliente.notas || "Sin notas"}`
 
       setTimeout(() => {
         vaciarCarrito()
-        setPantalla("inicio")
+        navigate("/")
       }, 700)
     } catch (error) {
       console.error("No se pudo abrir WhatsApp:", error)
       window.location.href = url
       setTimeout(() => {
         vaciarCarrito()
-        setPantalla("inicio")
+        navigate("/")
       }, 700)
     }
   }
@@ -1993,7 +2129,7 @@ Notas: ${datosCliente.notas || "Sin notas"}`
   const salirAdmin = () => {
     localStorage.removeItem(STORAGE_KEYS.adminAuth)
     setAdminAutorizado(false)
-    limpiarAccesoAdminUrl()
+    navigate("/")
   }
 
   const restablecerRestaurantesBase = () => {
@@ -2007,7 +2143,7 @@ Notas: ${datosCliente.notas || "Sin notas"}`
     setRestaurantes(base)
     guardarRestaurantesStorage(base)
     setRestauranteSeleccionado(null)
-    setPantalla("inicio")
+    navigate("/")
   }
 
 
@@ -2027,7 +2163,7 @@ Notas: ${datosCliente.notas || "Sin notas"}`
     carrito.items.length > 0 ? (
       <button
         style={estilos.barraGlobal}
-        onClick={() => setPantalla("carrito")}
+        onClick={irAlCarrito}
       >
         <div style={estilos.barraGlobalIzquierda}>
           <span style={estilos.iconoCarritoGrande}>🛒</span>
@@ -2048,19 +2184,21 @@ Notas: ${datosCliente.notas || "Sin notas"}`
       </button>
     ) : null
 
-  if (!adminRevisado) {
-    return null
-  }
+  if (location.pathname === "/admin") {
+    if (!adminRevisado) {
+      return null
+    }
 
-  if (adminAutorizado) {
-    return (
-      <AdminPanel
-        restaurantes={restaurantes}
-        onGuardar={guardarRestaurantesDesdeAdmin}
-        onSalirAdmin={salirAdmin}
-        onRestablecer={restablecerRestaurantesBase}
-      />
-    )
+    if (adminAutorizado) {
+      return (
+        <AdminPanel
+          restaurantes={restaurantes}
+          onGuardar={guardarRestaurantesDesdeAdmin}
+          onSalirAdmin={salirAdmin}
+          onRestablecer={restablecerRestaurantesBase}
+        />
+      )
+    }
   }
 
   if (pantalla === "carrito") {
@@ -2069,7 +2207,7 @@ Notas: ${datosCliente.notas || "Sin notas"}`
         <div style={estilos.contenedorSm}>
           <button
             style={estilos.botonVolver}
-            onClick={() => setPantalla("menu")}
+            onClick={volverAMenu}
           >
             ← Regresar
           </button>
@@ -2149,7 +2287,7 @@ Notas: ${datosCliente.notas || "Sin notas"}`
                 <div style={estilos.bloqueBotonesFinales}>
                   <button
                     style={estilos.botonContinuarNuevo}
-                    onClick={() => setPantalla("checkout")}
+                    onClick={irAlCheckout}
                   >
                     Continuar
                   </button>
@@ -2172,7 +2310,7 @@ Notas: ${datosCliente.notas || "Sin notas"}`
         <div style={estilos.contenedorSm}>
           <button
             style={estilos.botonVolver}
-            onClick={() => setPantalla("carrito")}
+            onClick={irAlCarrito}
           >
             ← Regresar
           </button>
@@ -2497,7 +2635,7 @@ Notas: ${datosCliente.notas || "Sin notas"}`
                   style={estilos.botonWhatsApp}
                   onClick={enviarPedidoPorWhatsApp}
                 >
-                  Enviar pedido por WhatsApp
+                  Confirmar pedido
                 </button>
               </div>
             </div>
@@ -2513,7 +2651,7 @@ Notas: ${datosCliente.notas || "Sin notas"}`
         <div style={estilos.contenedorDetalle}>
           <button
             style={estilos.botonVolver}
-            onClick={() => setPantalla("menu")}
+            onClick={volverAMenu}
           >
             ← Menú completo
           </button>
@@ -2650,10 +2788,7 @@ Notas: ${datosCliente.notas || "Sin notas"}`
         <div style={estilos.contenedor}>
           <button
             style={estilos.botonVolver}
-            onClick={() => {
-              setPantalla("inicio")
-              setRestauranteSeleccionado(null)
-            }}
+            onClick={volverAInicio}
           >
             ← Volver
           </button>
@@ -2813,7 +2948,7 @@ Notas: ${datosCliente.notas || "Sin notas"}`
           carrito.restauranteId === restauranteSeleccionado.id && (
             <button
               style={estilos.barraCarrito}
-              onClick={() => setPantalla("carrito")}
+              onClick={irAlCarrito}
             >
               <div style={estilos.barraTexto}>
                 <span style={estilos.iconoCanasta}>🛒</span>
@@ -2854,10 +2989,7 @@ Notas: ${datosCliente.notas || "Sin notas"}`
               <button
                 key={restaurante.id}
                 style={estilos.tarjeta}
-                onClick={() => {
-                  setRestauranteSeleccionado(restaurante)
-                  setPantalla("menu")
-                }}
+                onClick={() => abrirRestaurante(restaurante)}
               >
                 <img
                   src={restaurante.imagen}
@@ -2906,14 +3038,6 @@ Notas: ${datosCliente.notas || "Sin notas"}`
           })}
         </div>
       </div>
-
-      <button
-        onClick={abrirAdminDesdeBoton}
-        style={estilos.botonAdminSecreto}
-        title="Administrador"
-      >
-        ⚙
-      </button>
 
       {BarraFlotanteGlobal}
     </div>
@@ -3596,6 +3720,22 @@ cardResumenSticky: {
     padding: "16px",
     marginBottom: "16px"
   },
+  botonAdminDiscreto: {
+    position: "fixed",
+    right: "14px",
+    bottom: "14px",
+    width: "42px",
+    height: "42px",
+    borderRadius: "999px",
+    border: "none",
+    backgroundColor: "#111827",
+    color: "#fff",
+    fontSize: "18px",
+    cursor: "pointer",
+    opacity: 0.22,
+    zIndex: 9999,
+    boxShadow: "0 8px 24px rgba(0,0,0,0.18)"
+  },
   botonWhatsApp: {
     width: "100%",
     backgroundColor: "#243b53",
@@ -3822,22 +3962,6 @@ cardResumenSticky: {
     fontWeight: 800,
     color: "#102a43",
     margin: "0 0 14px"
-  },
-  botonAdminSecreto: {
-    position: "fixed",
-    right: "14px",
-    bottom: "14px",
-    width: "42px",
-    height: "42px",
-    borderRadius: "999px",
-    border: "none",
-    backgroundColor: "#111",
-    color: "#fff",
-    fontSize: "18px",
-    cursor: "pointer",
-    opacity: 0.18,
-    zIndex: 9999,
-    boxShadow: "0 8px 24px rgba(0,0,0,0.18)"
   },
 }
 
