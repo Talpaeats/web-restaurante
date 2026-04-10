@@ -734,7 +734,7 @@ export default function AdminPanel({
         <div style={styles.header}>
           <div>
             <div style={styles.eyebrow}>Talpa Eats · Centro de mando</div>
-            <h1 style={styles.title}>Panel administrativo</h1>
+            <h1 style={{ ...styles.title, color: "#ffffff" }}>Panel administrativo</h1>
             <p style={styles.subtitle}>
               Dashboard de ventas, utilidad, pedidos y asignación de repartidores.
             </p>
