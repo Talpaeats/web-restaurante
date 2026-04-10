@@ -2383,16 +2383,16 @@ function App() {
 
     if (adminAutorizado) {
       return (
-<AdminPanel
-  restaurantes={restaurantes}
-  pedidos={pedidos}
-  repartidores={repartidores}
-  onGuardar={guardarRestaurantesDesdeAdmin}
-  onGuardarPedidos={guardarPedidosDesdeAdmin}
-  onGuardarRepartidores={guardarRepartidoresDesdeAdmin}
-  onSalirAdmin={salirAdmin}
-  onRestablecer={restablecerRestaurantesBase}
-/>
+        <AdminPanel
+          restaurantes={restaurantes}
+          pedidos={pedidos}
+          repartidores={repartidores}
+          onGuardar={guardarRestaurantesDesdeAdmin}
+          onGuardarPedidos={guardarPedidosDesdeAdmin}
+          onGuardarRepartidores={guardarRepartidoresDesdeAdmin}
+          onSalirAdmin={salirAdmin}
+          onRestablecer={restablecerRestaurantesBase}
+        />
       )
     }
   }
